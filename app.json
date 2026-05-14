@@ -1,0 +1,28 @@
+{
+  "expo": {
+    "name": "Uber Lawns",
+    "slug": "uber-lawns",
+    "version": "0.1.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.uberlawns.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Uber Lawns uses your location to show nearby lawn-mowing jobs and to help measure your lawn."
+      }
+    },
+    "android": {
+      "package": "com.uberlawns.app",
+      "permissions": ["ACCESS_FINE_LOCATION", "ACCESS_COARSE_LOCATION"]
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Uber Lawns to use your location."
+        }
+      ]
+    ]
+  }
+}

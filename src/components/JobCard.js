@@ -1,0 +1,94 @@
+import React from 'react';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { colors, radii, spacing } from '../theme/colors';
+import { TIERS, formatUsd, formatSqft } from '../utils/pricing';
+
+const STATUS_LABELS = {
+  open: 'Looking for mower',
+  accepted: 'Mower on the way',
+  in_progress: 'Mowing in progress',
+  completed: 'Completed — rate your mower',
+  rated: 'Completed',
+  cancelled: 'Cancelled',
+};
+
+const STATUS_COLORS = {
+  open: colors.accent,
+  accepted: colors.primary,
+  in_progress: colors.primary,
+  completed: colors.primaryDark,
+  rated: colors.textMuted,
+  cancelled: colors.danger,
+};
+
+export default function JobCard({ job, onPress, ctaLabel }) {
+  const tier = TIERS[job.tier] || TIERS.standard;
+  return (
+    <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
+      <View style={styles.row}>
+        <Ionicons name="leaf" size={18} color={colors.primary} />
+        <Text style={styles.address} numberOfLines={1}>
+          {job.addressLabel}
+        </Text>
+        <Text style={styles.price}>{formatUsd(job.priceEstimate)}</Text>
+      </View>
+
+      <View style={styles.metaRow}>
+        <Text style={styles.meta}>{formatSqft(job.squareFeet)}</Text>
+        <Text style={styles.dot}>•</Text>
+        <Text style={styles.meta}>{job.durationMinutes} min</Text>
+        <Text style={styles.dot}>•</Text>
+        <Text
+          style={[
+            styles.tierBadge,
+            job.tier === 'black' && { color: colors.proPurple },
+            job.tier === 'pro' && { color: colors.accent },
+          ]}
+        >
+          {tier.label}
+        </Text>
+      </View>
+
+      <View style={styles.row}>
+        <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[job.status] }]} />
+        <Text style={styles.status}>{STATUS_LABELS[job.status] || job.status}</Text>
+      </View>
+
+      {ctaLabel ? (
+        <View style={styles.cta}>
+          <Text style={styles.ctaText}>{ctaLabel}</Text>
+          <Ionicons name="chevron-forward" size={16} color={colors.primary} />
+        </View>
+      ) : null}
+    </TouchableOpacity>
+  );
+}
+
+const styles = StyleSheet.create({
+  card: {
+    backgroundColor: colors.surface,
+    borderRadius: radii.md,
+    padding: spacing.md,
+    marginBottom: spacing.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  address: { flex: 1, fontWeight: '700', color: colors.text, marginLeft: 4 },
+  price: { fontWeight: '800', color: colors.text },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, marginBottom: 6 },
+  meta: { color: colors.textMuted, fontSize: 12 },
+  dot: { color: colors.textMuted, fontSize: 12 },
+  tierBadge: { fontSize: 12, color: colors.primary, fontWeight: '700' },
+  statusDot: { width: 8, height: 8, borderRadius: 4 },
+  status: { color: colors.textMuted, fontSize: 12 },
+  cta: {
+    marginTop: spacing.sm,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 2,
+  },
+  ctaText: { color: colors.primary, fontWeight: '700' },
+});
