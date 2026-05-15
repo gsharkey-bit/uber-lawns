@@ -37,13 +37,14 @@ export default function LawnMeasureScreen({ navigation }) {
         coordinate: a.coordinate,
         estimatedArea: a.estimatedArea || 3000,
       });
-      setPolygon(result.coordinates);
+      setPolygon(result.coordinates || []);
       setHoles(result.holes || []);
       setSource('auto');
-      setConfidence(result.confidence);
-    } catch {
-      Alert.alert('Auto-detect failed', 'You can outline the lawn manually instead.');
-      setMode('manual');
+      setConfidence(result.confidence || 'low');
+    } catch (e) {
+      console.warn('runAutoDetect unexpected error:', e?.message || e);
+      setSource('auto');
+      setConfidence('low');
     } finally {
       setDetecting(false);
     }
@@ -121,7 +122,9 @@ export default function LawnMeasureScreen({ navigation }) {
                 color={confidence === 'high' ? colors.primary : confidence === 'medium' ? colors.accent : colors.textMuted}
               />
               <Text style={styles.confidenceText}>
-                Confidence: {confidence}{confidence === 'low' ? ' — please verify' : ''}
+                {confidence === 'high' ? 'Both data sources matched — outline looks accurate.'
+                  : confidence === 'medium' ? 'Partial match — please verify or drag the corners to adjust.'
+                  : 'Couldn\'t find building data for this address. Drag the corners to outline your lawn, or switch to draw manually.'}
               </Text>
             </View>
           ) : null}
