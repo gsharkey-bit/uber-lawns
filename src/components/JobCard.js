@@ -26,16 +26,28 @@ const STATUS_COLORS = {
   cancelled: colors.danger,
 };
 
-export default function JobCard({ job, onPress, ctaLabel }) {
+/**
+ * JobCard
+ *   viewerRole = 'customer' (default) → shows the customer's total (base + tip)
+ *   viewerRole = 'mower'              → shows mower take-home (mowerEarn + tip)
+ *                                       and prefixes with "You earn"
+ */
+export default function JobCard({ job, onPress, ctaLabel, viewerRole = 'customer' }) {
   const tier = TIERS[job.tier] || TIERS.standard;
+  const tipped = job.tip || 0;
+
+  const priceLabel = viewerRole === 'mower'
+    ? `You earn ${formatUsd((job.mowerEarn || 0) + tipped)}`
+    : formatUsd((job.priceEstimate || 0) + tipped);
+
+  const priceColor = viewerRole === 'mower' ? { color: colors.primary } : null;
+
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.85}>
       <View style={styles.row}>
         <Ionicons name="leaf" size={18} color={colors.primary} />
-        <Text style={styles.address} numberOfLines={1}>
-          {job.addressLabel}
-        </Text>
-        <Text style={styles.price}>{formatUsd(job.priceEstimate)}</Text>
+        <Text style={styles.address} numberOfLines={1}>{job.addressLabel}</Text>
+        <Text style={[styles.price, priceColor]}>{priceLabel}</Text>
       </View>
 
       <View style={styles.metaRow}>
@@ -54,8 +66,15 @@ export default function JobCard({ job, onPress, ctaLabel }) {
         </Text>
       </View>
 
+      {job.scheduledSlot ? (
+        <View style={styles.metaRow}>
+          <Ionicons name="time-outline" size={12} color={colors.textMuted} />
+          <Text style={styles.meta}>{job.scheduledSlot}</Text>
+        </View>
+      ) : null}
+
       <View style={styles.row}>
-        <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[job.status] }]} />
+        <View style={[styles.statusDot, { backgroundColor: STATUS_COLORS[job.status] || colors.textMuted }]} />
         <Text style={styles.status}>{STATUS_LABELS[job.status] || job.status}</Text>
       </View>
 
@@ -71,12 +90,9 @@ export default function JobCard({ job, onPress, ctaLabel }) {
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: colors.surface,
-    borderRadius: radii.md,
-    padding: spacing.md,
-    marginBottom: spacing.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
+    backgroundColor: colors.surface, borderRadius: radii.md,
+    padding: spacing.md, marginBottom: spacing.sm,
+    borderWidth: 1, borderColor: colors.border,
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   address: { flex: 1, fontWeight: '700', color: colors.text, marginLeft: 4 },
@@ -87,12 +103,6 @@ const styles = StyleSheet.create({
   tierBadge: { fontSize: 12, color: colors.primary, fontWeight: '700' },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
   status: { color: colors.textMuted, fontSize: 12 },
-  cta: {
-    marginTop: spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    gap: 2,
-  },
+  cta: { marginTop: spacing.sm, flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 2 },
   ctaText: { color: colors.primary, fontWeight: '700' },
 });

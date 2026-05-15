@@ -1,24 +1,27 @@
 import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, PanResponder, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, PanResponder, ActivityIndicator } from 'react-native';
 import MapView, { Polygon, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
-import { Ionicons } from '@expo/vector-icons';
 import { colors, radii, spacing } from '../theme/colors';
-import { polygonAreaSquareFeet } from '../utils/geometry';
+import { lawnArea } from '../services/autoDetect';
 import { formatSqft } from '../utils/pricing';
 
 /**
- * LawnPolygonMap — satellite map with two outline modes:
- *   mode="auto"   : show an auto-detected polygon (read-only)
- *   mode="manual" : let the user drag their finger to draw a polygon
+ * LawnPolygonMap — satellite map for lawn outline.
  *
- * Pass `coordinate` to pan the map there (e.g. after address pick).
- * Pass `initialPolygon` to display an existing outline.
+ * Modes:
+ *   - 'manual'  : drag finger to draw polygon freehand
+ *   - 'adjust'  : auto-detected polygon with draggable corner handles
+ *   - 'view'    : read-only display
+ *
+ * Polygon can be a flat list of coords OR { coordinates, holes } for the
+ * lot-minus-building shape.
  */
 const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
   const {
     coordinate,
     initialPolygon = [],
+    initialHoles = [],
     mode = 'manual',
     onPolygonChange,
     loadingLabel,
@@ -26,76 +29,63 @@ const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
 
   const [region, setRegion] = useState(null);
   const [polygon, setPolygon] = useState(initialPolygon);
+  const [holes, setHoles] = useState(initialHoles);
   const mapRef = useRef(null);
   const drawingRef = useRef([]);
 
   useImperativeHandle(ref, () => ({
     clear: () => {
-      setPolygon([]);
-      drawingRef.current = [];
-      onPolygonChange?.([]);
+      setPolygon([]); setHoles([]); drawingRef.current = [];
+      onPolygonChange?.([], []);
     },
-    setPolygon: (pts) => {
-      setPolygon(pts);
-      onPolygonChange?.(pts);
+    setPolygon: (pts, hls = []) => {
+      setPolygon(pts); setHoles(hls);
+      onPolygonChange?.(pts, hls);
     },
   }), [onPolygonChange]);
 
-  // Pan to the chosen address coordinate
   useEffect(() => {
     if (coordinate) {
-      const r = {
-        ...coordinate,
-        latitudeDelta: 0.001,
-        longitudeDelta: 0.001,
-      };
+      const r = { ...coordinate, latitudeDelta: 0.0008, longitudeDelta: 0.0008 };
       setRegion(r);
       mapRef.current?.animateToRegion(r, 600);
     }
   }, [coordinate?.latitude, coordinate?.longitude]);
 
-  // If we have neither coordinate nor a region yet, try to use device GPS
   useEffect(() => {
     if (region || coordinate) return;
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          setRegion({ latitude: 37.78925, longitude: -122.4344, latitudeDelta: 0.002, longitudeDelta: 0.002 });
+          setRegion({ latitude: 37.78925, longitude: -122.4344, latitudeDelta: 0.001, longitudeDelta: 0.001 });
           return;
         }
         const loc = await Location.getCurrentPositionAsync({});
-        setRegion({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.002, longitudeDelta: 0.002 });
+        setRegion({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.001, longitudeDelta: 0.001 });
       } catch {
-        setRegion({ latitude: 37.78925, longitude: -122.4344, latitudeDelta: 0.002, longitudeDelta: 0.002 });
+        setRegion({ latitude: 37.78925, longitude: -122.4344, latitudeDelta: 0.001, longitudeDelta: 0.001 });
       }
     })();
   }, [region, coordinate]);
 
-  // Sync incoming initialPolygon (e.g. after auto-detect)
   useEffect(() => {
     setPolygon(initialPolygon);
-  }, [initialPolygon]);
+    setHoles(initialHoles);
+  }, [initialPolygon, initialHoles]);
 
-  // PanResponder lets the user draw freehand when mode === 'manual'.
+  // Freehand drawing via PanResponder (manual mode only)
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => mode === 'manual',
       onMoveShouldSetPanResponder: () => mode === 'manual',
-      onPanResponderGrant: async (evt) => {
-        drawingRef.current = [];
-        await addPointFromEvent(evt);
-      },
-      onPanResponderMove: async (evt) => {
-        await addPointFromEvent(evt);
-      },
+      onPanResponderGrant: (evt) => { drawingRef.current = []; addPointFromEvent(evt); },
+      onPanResponderMove: (evt) => addPointFromEvent(evt),
       onPanResponderRelease: () => {
-        if (drawingRef.current.length >= 3) {
-          // close the polygon
-          drawingRef.current.push(drawingRef.current[0]);
-        }
+        if (drawingRef.current.length >= 3) drawingRef.current.push(drawingRef.current[0]);
         setPolygon(drawingRef.current.slice());
-        onPolygonChange?.(drawingRef.current.slice());
+        setHoles([]);
+        onPolygonChange?.(drawingRef.current.slice(), []);
       },
     })
   ).current;
@@ -104,19 +94,26 @@ const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
     if (!mapRef.current) return;
     const { locationX, locationY } = evt.nativeEvent;
     try {
-      const coord = await mapRef.current.coordinateForPoint({ x: locationX, y: locationY });
+      const c = await mapRef.current.coordinateForPoint({ x: locationX, y: locationY });
       const last = drawingRef.current[drawingRef.current.length - 1];
       if (last) {
-        const dLat = (coord.latitude - last.latitude) * 111000;
-        const dLng = (coord.longitude - last.longitude) * 85000;
-        if (Math.hypot(dLat, dLng) < 0.4) return; // throttle
+        const dLat = (c.latitude - last.latitude) * 111000;
+        const dLng = (c.longitude - last.longitude) * 85000;
+        if (Math.hypot(dLat, dLng) < 0.4) return;
       }
-      drawingRef.current.push(coord);
+      drawingRef.current.push(c);
       setPolygon(drawingRef.current.slice());
     } catch {}
   }
 
-  const sqft = polygonAreaSquareFeet(polygon);
+  const onDragVertex = (idx) => (e) => {
+    const next = polygon.slice();
+    next[idx] = e.nativeEvent.coordinate;
+    setPolygon(next);
+    onPolygonChange?.(next, holes);
+  };
+
+  const sqft = lawnArea(polygon, holes);
 
   if (!region) {
     return (
@@ -141,11 +138,25 @@ const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
           {polygon.length >= 3 ? (
             <Polygon
               coordinates={polygon}
+              holes={holes && holes.length ? holes : undefined}
               strokeColor={colors.primary}
               fillColor="rgba(46,125,50,0.35)"
               strokeWidth={2}
             />
           ) : null}
+          {mode === 'adjust' && polygon.length >= 3
+            ? polygon.map((p, i) => (
+                <Marker
+                  key={`v-${i}`}
+                  coordinate={p}
+                  draggable
+                  onDragEnd={onDragVertex(i)}
+                  anchor={{ x: 0.5, y: 0.5 }}
+                >
+                  <View style={styles.handle} />
+                </Marker>
+              ))
+            : null}
         </MapView>
       </View>
 
@@ -157,9 +168,13 @@ const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
             ? polygon.length >= 3
               ? `Estimated area: ${formatSqft(sqft)}`
               : 'Drag your finger to outline the lawn'
+            : mode === 'adjust'
+            ? polygon.length >= 3
+              ? `Auto-detected: ${formatSqft(sqft)} · drag corners to adjust`
+              : 'Pick an address to begin'
             : polygon.length >= 3
-            ? `Auto-measured: ${formatSqft(sqft)}`
-            : 'Pick an address to begin'}
+            ? formatSqft(sqft)
+            : ''}
         </Text>
       </View>
     </View>
@@ -169,21 +184,15 @@ const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
 export default LawnPolygonMap;
 
 const styles = StyleSheet.create({
-  wrap: {
-    flex: 1,
-    borderRadius: radii.md,
-    overflow: 'hidden',
-    backgroundColor: '#000',
-  },
+  wrap: { flex: 1, borderRadius: radii.md, overflow: 'hidden', backgroundColor: '#000' },
   centerWrap: { alignItems: 'center', justifyContent: 'center' },
   banner: {
-    position: 'absolute',
-    top: spacing.md,
-    left: spacing.md,
-    right: spacing.md,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    padding: spacing.sm,
-    borderRadius: radii.sm,
+    position: 'absolute', top: spacing.md, left: spacing.md, right: spacing.md,
+    backgroundColor: 'rgba(0,0,0,0.6)', padding: spacing.sm, borderRadius: radii.sm,
   },
   bannerText: { color: '#fff', fontWeight: '600', textAlign: 'center' },
+  handle: {
+    width: 18, height: 18, borderRadius: 9,
+    backgroundColor: colors.primary, borderWidth: 3, borderColor: '#fff',
+  },
 });

@@ -61,6 +61,7 @@ export default function ConfirmOutlineScreen({ route, navigation }) {
             {job.polygon && job.polygon.length >= 3 ? (
               <Polygon
                 coordinates={job.polygon}
+                holes={job.holes && job.holes.length ? job.holes : undefined}
                 strokeColor={colors.primary}
                 fillColor="rgba(46,125,50,0.35)"
                 strokeWidth={2}

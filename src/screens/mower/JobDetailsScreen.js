@@ -65,7 +65,13 @@ export default function JobDetailsScreen({ route, navigation }) {
               mapType="satellite"
             >
               {job.polygon && job.polygon.length >= 3 ? (
-                <Polygon coordinates={job.polygon} strokeColor={colors.primary} fillColor="rgba(46,125,50,0.35)" strokeWidth={2} />
+                <Polygon
+                  coordinates={job.polygon}
+                  holes={job.holes && job.holes.length ? job.holes : undefined}
+                  strokeColor={colors.primary}
+                  fillColor="rgba(46,125,50,0.35)"
+                  strokeWidth={2}
+                />
               ) : (
                 <Marker coordinate={job.coordinate} />
               )}

@@ -41,6 +41,7 @@ export default function MowerHomeScreen({ navigation }) {
             <Text style={styles.sectionTitle}>Active job</Text>
             <JobCard
               job={active}
+              viewerRole="mower"
               onPress={() => navigation.navigate('ActiveJob', { jobId: active.id })}
               ctaLabel="Open job"
             />
@@ -65,6 +66,7 @@ export default function MowerHomeScreen({ navigation }) {
             <JobCard
               key={j.id}
               job={j}
+              viewerRole="mower"
               onPress={() => navigation.navigate('JobDetails', { jobId: j.id })}
               ctaLabel="See details"
             />

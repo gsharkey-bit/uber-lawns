@@ -50,6 +50,7 @@ export default function EarningsScreen({ navigation }) {
               <JobCard
                 key={j.id}
                 job={j}
+                viewerRole="mower"
                 onPress={() => navigation.navigate('ActiveJob', { jobId: j.id })}
               />
             ))

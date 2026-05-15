@@ -14,7 +14,7 @@ import { polygonCentroid } from '../../utils/geometry';
 import { colors, radii, spacing } from '../../theme/colors';
 
 export default function RequestJobScreen({ route, navigation }) {
-  const { squareFeet, polygon, address, coordinate, measurementSource, schedule, frequency } = route.params;
+  const { squareFeet, polygon, holes = [], address, coordinate, measurementSource, schedule, frequency } = route.params;
   const { user } = useAuth();
   const { createJob, jobs } = useJobs();
   const [tier, setTier] = useState('standard');
@@ -37,6 +37,7 @@ export default function RequestJobScreen({ route, navigation }) {
       addressLabel: address,
       coordinate: center,
       polygon,
+      holes,
       squareFeet,
       tier,
       priceEstimate: base,

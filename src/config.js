@@ -6,7 +6,7 @@
 //
 // Without a key the app runs in DEMO MODE with preset addresses.
 
-export const GOOGLE_MAPS_API_KEY = '';
+export const GOOGLE_MAPS_API_KEY = 'AIzaSyCm5NXOTvdhPTVSVwx-Zh0xxsWm5bITJFA';
 
 export const USE_DEMO_MODE = !GOOGLE_MAPS_API_KEY;
 
