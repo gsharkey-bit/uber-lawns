@@ -1,21 +1,10 @@
 import React, { createContext, useContext, useMemo, useState, useCallback } from 'react';
 import { mockSeedJobs } from '../data/mockData';
 
-/**
- * JobsContext: in-memory job board shared between the customer and mower
- * apps. A real backend would push these via WebSocket / FCM.
- *
- * Job lifecycle:
- *   open -> accepted -> in_progress -> completed -> rated
- *   open -> cancelled
- */
 const JobsContext = createContext(null);
 
 let jobCounter = 1000;
-function nextJobId() {
-  jobCounter += 1;
-  return `j_${jobCounter}`;
-}
+function nextJobId() { jobCounter += 1; return `j_${jobCounter}`; }
 
 export function JobsProvider({ children }) {
   const [jobs, setJobs] = useState(mockSeedJobs);
@@ -25,6 +14,8 @@ export function JobsProvider({ children }) {
       id: nextJobId(),
       status: 'open',
       createdAt: Date.now(),
+      tip: 0,
+      chatMessages: [],
       ...payload,
     };
     setJobs((prev) => [job, ...prev]);
@@ -37,12 +28,16 @@ export function JobsProvider({ children }) {
 
   const acceptJob = useCallback((jobId, mower) => {
     updateJob(jobId, {
-      status: 'accepted',
+      status: 'confirming',
       mowerId: mower.id,
       mowerName: mower.name,
       mowerRating: mower.rating,
       acceptedAt: Date.now(),
     });
+  }, [updateJob]);
+
+  const confirmOutline = useCallback((jobId) => {
+    updateJob(jobId, { status: 'accepted', outlineConfirmedAt: Date.now() });
   }, [updateJob]);
 
   const startJob = useCallback((jobId) => {
@@ -53,58 +48,41 @@ export function JobsProvider({ children }) {
     updateJob(jobId, { status: 'completed', completedAt: Date.now() });
   }, [updateJob]);
 
-  const rateJob = useCallback((jobId, rating, comment) => {
-    updateJob(jobId, { status: 'rated', rating, ratingComment: comment });
+  const rateJob = useCallback((jobId, rating) => {
+    updateJob(jobId, { status: 'rated', rating });
   }, [updateJob]);
+
+  const addTip = useCallback((jobId, amount) => {
+    setJobs((prev) => prev.map((j) => j.id === jobId ? { ...j, tip: amount, status: 'tipped' } : j));
+  }, []);
 
   const cancelJob = useCallback((jobId) => {
     updateJob(jobId, { status: 'cancelled', cancelledAt: Date.now() });
   }, [updateJob]);
 
-  const jobsForCustomer = useCallback(
-    (customerId) => jobs.filter((j) => j.customerId === customerId),
-    [jobs]
-  );
+  const sendChatMessage = useCallback((jobId, from, text) => {
+    setJobs((prev) => prev.map((j) => {
+      if (j.id !== jobId) return j;
+      const msgs = j.chatMessages || [];
+      return { ...j, chatMessages: [...msgs, { from, text, ts: Date.now() }] };
+    }));
+  }, []);
 
-  const openJobsForTier = useCallback(
-    (allowedTiers) =>
-      jobs.filter((j) => j.status === 'open' && allowedTiers.includes(j.tier)),
-    [jobs]
-  );
+  const jobsForCustomer = useCallback((customerId) =>
+    jobs.filter((j) => j.customerId === customerId), [jobs]);
 
-  const jobsForMower = useCallback(
-    (mowerId) => jobs.filter((j) => j.mowerId === mowerId),
-    [jobs]
-  );
+  const openJobsForTier = useCallback((allowedTiers) =>
+    jobs.filter((j) => j.status === 'open' && allowedTiers.includes(j.tier)), [jobs]);
 
-  const value = useMemo(
-    () => ({
-      jobs,
-      createJob,
-      updateJob,
-      acceptJob,
-      startJob,
-      completeJob,
-      rateJob,
-      cancelJob,
-      jobsForCustomer,
-      openJobsForTier,
-      jobsForMower,
-    }),
-    [
-      jobs,
-      createJob,
-      updateJob,
-      acceptJob,
-      startJob,
-      completeJob,
-      rateJob,
-      cancelJob,
-      jobsForCustomer,
-      openJobsForTier,
-      jobsForMower,
-    ]
-  );
+  const jobsForMower = useCallback((mowerId) =>
+    jobs.filter((j) => j.mowerId === mowerId), [jobs]);
+
+  const value = useMemo(() => ({
+    jobs, createJob, updateJob, acceptJob, confirmOutline, startJob, completeJob,
+    rateJob, addTip, cancelJob, sendChatMessage,
+    jobsForCustomer, openJobsForTier, jobsForMower,
+  }), [jobs, createJob, updateJob, acceptJob, confirmOutline, startJob, completeJob,
+       rateJob, addTip, cancelJob, sendChatMessage, jobsForCustomer, openJobsForTier, jobsForMower]);
 
   return <JobsContext.Provider value={value}>{children}</JobsContext.Provider>;
 }

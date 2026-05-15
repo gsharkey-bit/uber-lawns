@@ -6,19 +6,23 @@ import { TIERS, formatUsd, formatSqft } from '../utils/pricing';
 
 const STATUS_LABELS = {
   open: 'Looking for mower',
+  confirming: 'Mower verifying lawn',
   accepted: 'Mower on the way',
   in_progress: 'Mowing in progress',
   completed: 'Completed — rate your mower',
   rated: 'Completed',
+  tipped: 'Completed',
   cancelled: 'Cancelled',
 };
 
 const STATUS_COLORS = {
   open: colors.accent,
+  confirming: colors.primary,
   accepted: colors.primary,
   in_progress: colors.primary,
   completed: colors.primaryDark,
   rated: colors.textMuted,
+  tipped: colors.textMuted,
   cancelled: colors.danger,
 };
 

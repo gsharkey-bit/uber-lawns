@@ -1,15 +1,15 @@
 import React, { createContext, useContext, useMemo, useState } from 'react';
 import { mockUsers } from '../data/mockData';
 
-/**
- * AuthContext: minimal in-memory auth for the prototype.
- * Role is 'customer' or 'mower'. A real implementation would call a backend
- * and persist a token; this version just stores user state in memory.
- */
 const AuthContext = createContext(null);
 
+function makeReferralCode(name) {
+  const stem = (name || 'lawn').split(' ')[0].toUpperCase();
+  return `LAWN-${stem}-${Math.floor(Math.random() * 900) + 100}`;
+}
+
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null); // { id, name, email, role, ...roleData }
+  const [user, setUser] = useState(null);
 
   const signInAsCustomer = ({ email, name }) => {
     const seed = mockUsers.customers[0];
@@ -19,6 +19,9 @@ export function AuthProvider({ children }) {
       name: name || seed.name,
       email: email || seed.email,
       addressLabel: seed.addressLabel,
+      referralCode: makeReferralCode(name || seed.name),
+      referralsCount: 2,
+      referralEarnings: 20,
     });
   };
 
@@ -34,6 +37,7 @@ export function AuthProvider({ children }) {
       tiers: seed.tiers,
       bio: seed.bio,
       online: false,
+      verified: false,
     });
   };
 
@@ -43,8 +47,12 @@ export function AuthProvider({ children }) {
     setUser((prev) => (prev ? { ...prev, online } : prev));
   };
 
+  const setMowerVerified = (verified) => {
+    setUser((prev) => (prev ? { ...prev, verified } : prev));
+  };
+
   const value = useMemo(
-    () => ({ user, signInAsCustomer, signInAsMower, signOut, setOnline }),
+    () => ({ user, signInAsCustomer, signInAsMower, signOut, setOnline, setMowerVerified }),
     [user]
   );
 

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import React, { useState, useEffect, useRef, useImperativeHandle, forwardRef } from 'react';
+import { View, Text, StyleSheet, TouchableOpacity, PanResponder, ActivityIndicator } from 'react-native';
 import MapView, { Polygon, Marker } from 'react-native-maps';
 import * as Location from 'expo-location';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,126 +8,165 @@ import { polygonAreaSquareFeet } from '../utils/geometry';
 import { formatSqft } from '../utils/pricing';
 
 /**
- * LawnPolygonMap — tap to drop polygon vertices on a satellite map.
- * The polygon's square footage is reported back via onAreaChange.
+ * LawnPolygonMap — satellite map with two outline modes:
+ *   mode="auto"   : show an auto-detected polygon (read-only)
+ *   mode="manual" : let the user drag their finger to draw a polygon
  *
- * Requires a Google Maps API key set in app.json (ios.config.googleMapsApiKey
- * and android.config.googleMaps.apiKey). Without a key it will still render
- * but tiles will not load.
+ * Pass `coordinate` to pan the map there (e.g. after address pick).
+ * Pass `initialPolygon` to display an existing outline.
  */
-export default function LawnPolygonMap({ initialRegion, onAreaChange, onCoordinatesChange }) {
-  const [coords, setCoords] = useState([]);
-  const [region, setRegion] = useState(initialRegion);
-  const mapRef = useRef(null);
+const LawnPolygonMap = forwardRef(function LawnPolygonMap(props, ref) {
+  const {
+    coordinate,
+    initialPolygon = [],
+    mode = 'manual',
+    onPolygonChange,
+    loadingLabel,
+  } = props;
 
-  // Try to center on the device's location on mount.
+  const [region, setRegion] = useState(null);
+  const [polygon, setPolygon] = useState(initialPolygon);
+  const mapRef = useRef(null);
+  const drawingRef = useRef([]);
+
+  useImperativeHandle(ref, () => ({
+    clear: () => {
+      setPolygon([]);
+      drawingRef.current = [];
+      onPolygonChange?.([]);
+    },
+    setPolygon: (pts) => {
+      setPolygon(pts);
+      onPolygonChange?.(pts);
+    },
+  }), [onPolygonChange]);
+
+  // Pan to the chosen address coordinate
   useEffect(() => {
-    if (region) return;
+    if (coordinate) {
+      const r = {
+        ...coordinate,
+        latitudeDelta: 0.001,
+        longitudeDelta: 0.001,
+      };
+      setRegion(r);
+      mapRef.current?.animateToRegion(r, 600);
+    }
+  }, [coordinate?.latitude, coordinate?.longitude]);
+
+  // If we have neither coordinate nor a region yet, try to use device GPS
+  useEffect(() => {
+    if (region || coordinate) return;
     (async () => {
       try {
         const { status } = await Location.requestForegroundPermissionsAsync();
         if (status !== 'granted') {
-          setRegion({
-            latitude: 37.78825,
-            longitude: -122.4324,
-            latitudeDelta: 0.002,
-            longitudeDelta: 0.002,
-          });
+          setRegion({ latitude: 37.78925, longitude: -122.4344, latitudeDelta: 0.002, longitudeDelta: 0.002 });
           return;
         }
         const loc = await Location.getCurrentPositionAsync({});
-        setRegion({
-          latitude: loc.coords.latitude,
-          longitude: loc.coords.longitude,
-          latitudeDelta: 0.002,
-          longitudeDelta: 0.002,
-        });
-      } catch (e) {
-        setRegion({
-          latitude: 37.78825,
-          longitude: -122.4324,
-          latitudeDelta: 0.002,
-          longitudeDelta: 0.002,
-        });
+        setRegion({ latitude: loc.coords.latitude, longitude: loc.coords.longitude, latitudeDelta: 0.002, longitudeDelta: 0.002 });
+      } catch {
+        setRegion({ latitude: 37.78925, longitude: -122.4344, latitudeDelta: 0.002, longitudeDelta: 0.002 });
       }
     })();
-  }, [region]);
+  }, [region, coordinate]);
 
-  const handleMapPress = (e) => {
-    const next = [...coords, e.nativeEvent.coordinate];
-    updateCoords(next);
-  };
+  // Sync incoming initialPolygon (e.g. after auto-detect)
+  useEffect(() => {
+    setPolygon(initialPolygon);
+  }, [initialPolygon]);
 
-  const updateCoords = (next) => {
-    setCoords(next);
-    const area = polygonAreaSquareFeet(next);
-    onAreaChange?.(area);
-    onCoordinatesChange?.(next);
-  };
+  // PanResponder lets the user draw freehand when mode === 'manual'.
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => mode === 'manual',
+      onMoveShouldSetPanResponder: () => mode === 'manual',
+      onPanResponderGrant: async (evt) => {
+        drawingRef.current = [];
+        await addPointFromEvent(evt);
+      },
+      onPanResponderMove: async (evt) => {
+        await addPointFromEvent(evt);
+      },
+      onPanResponderRelease: () => {
+        if (drawingRef.current.length >= 3) {
+          // close the polygon
+          drawingRef.current.push(drawingRef.current[0]);
+        }
+        setPolygon(drawingRef.current.slice());
+        onPolygonChange?.(drawingRef.current.slice());
+      },
+    })
+  ).current;
 
-  const undo = () => updateCoords(coords.slice(0, -1));
-  const clear = () => updateCoords([]);
+  async function addPointFromEvent(evt) {
+    if (!mapRef.current) return;
+    const { locationX, locationY } = evt.nativeEvent;
+    try {
+      const coord = await mapRef.current.coordinateForPoint({ x: locationX, y: locationY });
+      const last = drawingRef.current[drawingRef.current.length - 1];
+      if (last) {
+        const dLat = (coord.latitude - last.latitude) * 111000;
+        const dLng = (coord.longitude - last.longitude) * 85000;
+        if (Math.hypot(dLat, dLng) < 0.4) return; // throttle
+      }
+      drawingRef.current.push(coord);
+      setPolygon(drawingRef.current.slice());
+    } catch {}
+  }
 
-  const sqft = polygonAreaSquareFeet(coords);
+  const sqft = polygonAreaSquareFeet(polygon);
 
   if (!region) {
     return (
-      <View style={[styles.wrap, styles.loadingWrap]}>
-        <Text style={styles.loading}>Loading map…</Text>
+      <View style={[styles.wrap, styles.centerWrap]}>
+        <ActivityIndicator color={colors.primary} />
       </View>
     );
   }
 
   return (
     <View style={styles.wrap}>
-      <MapView
-        ref={mapRef}
-        style={StyleSheet.absoluteFill}
-        initialRegion={region}
-        mapType="satellite"
-        onPress={handleMapPress}
-        showsUserLocation
-      >
-        {coords.length > 0 && (
-          <Polygon
-            coordinates={coords}
-            strokeColor={colors.primary}
-            fillColor="rgba(46,125,50,0.35)"
-            strokeWidth={2}
-          />
-        )}
-        {coords.map((c, i) => (
-          <Marker
-            key={`${c.latitude}-${c.longitude}-${i}`}
-            coordinate={c}
-            anchor={{ x: 0.5, y: 0.5 }}
-          >
-            <View style={styles.vertex} />
-          </Marker>
-        ))}
-      </MapView>
+      <View {...(mode === 'manual' ? panResponder.panHandlers : {})} style={StyleSheet.absoluteFill}>
+        <MapView
+          ref={mapRef}
+          style={StyleSheet.absoluteFill}
+          initialRegion={region}
+          mapType="satellite"
+          scrollEnabled={mode !== 'manual'}
+          zoomEnabled={mode !== 'manual'}
+          rotateEnabled={false}
+        >
+          {polygon.length >= 3 ? (
+            <Polygon
+              coordinates={polygon}
+              strokeColor={colors.primary}
+              fillColor="rgba(46,125,50,0.35)"
+              strokeWidth={2}
+            />
+          ) : null}
+        </MapView>
+      </View>
 
       <View style={styles.banner} pointerEvents="none">
         <Text style={styles.bannerText}>
-          {coords.length < 3
-            ? 'Tap the map to outline your lawn'
-            : `Estimated area: ${formatSqft(sqft)}`}
+          {loadingLabel
+            ? loadingLabel
+            : mode === 'manual'
+            ? polygon.length >= 3
+              ? `Estimated area: ${formatSqft(sqft)}`
+              : 'Drag your finger to outline the lawn'
+            : polygon.length >= 3
+            ? `Auto-measured: ${formatSqft(sqft)}`
+            : 'Pick an address to begin'}
         </Text>
-      </View>
-
-      <View style={styles.controls}>
-        <TouchableOpacity style={styles.ctrl} onPress={undo} disabled={coords.length === 0}>
-          <Ionicons name="arrow-undo" size={18} color={colors.text} />
-          <Text style={styles.ctrlLabel}>Undo</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.ctrl} onPress={clear} disabled={coords.length === 0}>
-          <Ionicons name="trash-outline" size={18} color={colors.danger} />
-          <Text style={[styles.ctrlLabel, { color: colors.danger }]}>Clear</Text>
-        </TouchableOpacity>
       </View>
     </View>
   );
-}
+});
+
+export default LawnPolygonMap;
 
 const styles = StyleSheet.create({
   wrap: {
@@ -136,40 +175,15 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: '#000',
   },
-  loadingWrap: { alignItems: 'center', justifyContent: 'center' },
-  loading: { color: '#fff' },
-  vertex: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: colors.primary,
-    borderWidth: 2,
-    borderColor: '#fff',
-  },
+  centerWrap: { alignItems: 'center', justifyContent: 'center' },
   banner: {
     position: 'absolute',
     top: spacing.md,
     left: spacing.md,
     right: spacing.md,
-    backgroundColor: 'rgba(0,0,0,0.55)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     padding: spacing.sm,
     borderRadius: radii.sm,
   },
   bannerText: { color: '#fff', fontWeight: '600', textAlign: 'center' },
-  controls: {
-    position: 'absolute',
-    bottom: spacing.md,
-    right: spacing.md,
-    gap: spacing.xs,
-  },
-  ctrl: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: radii.pill,
-  },
-  ctrlLabel: { fontWeight: '700', color: colors.text },
 });
